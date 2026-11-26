@@ -67,7 +67,7 @@ let iz_niza_bitov niz =
     if i >= String.length niz then []
     else
       let bit =
-        match String.get niz i with
+        match niz.[i] with
         | '0' -> O
         | '1' -> I
         | _ -> failwith "Niz vsebuje neveljaven znak"
@@ -109,9 +109,9 @@ let kodiraj drevo niz =
   let rec aux i =
     if i >= String.length niz then []
     else
-      let znak = niz.[i] in
-      let par = List.find (fun (x, sez) -> x = znak) tabela in
-    snd par @ aux (i + 1) in
+      let koda = List.assoc niz.[i] tabela in
+      koda @ aux (i + 1)
+  in
   aux 0
 
 (*----------------------------------------------------------------------------*
@@ -124,10 +124,10 @@ let kodiraj drevo niz =
 [*----------------------------------------------------------------------------*)
 
 let dekodiraj drevo bit_list =
-  let rec aux trenutni bit_list rezultat =
-    match trenutni, bit_list with
+  let rec aux trenutni biti rezultat =
+    match trenutni, biti with
     | List znak, _ ->
-        aux drevo bit_list (rezultat ^ String.make 1 znak)
+        aux drevo biti (rezultat ^ String.make 1 znak)
     | Vozlisce (levo, desno), O :: ostali ->
         aux levo ostali rezultat
     | Vozlisce (levo, desno), I :: ostali ->
@@ -155,7 +155,7 @@ let frekvence niz =
       let znak = niz.[i] in
       let tabela =
         match List.assoc_opt znak tabela with
-        | Some count -> (znak, count + 1) :: List.remove_assoc znak tabela
+        | Some n -> (znak, n + 1) :: List.remove_assoc znak tabela
         | None -> (znak, 1) :: tabela
       in
       aux (i + 1) tabela
@@ -226,7 +226,7 @@ module UrejenSeznam : PRIORITETNA_VRSTA = struct
 
   let rec vstavi a list =
     match list with
-    | [] -> [ a ]
+    | [] -> [a]
     | x :: xs ->
         if a <= x then a :: list else x :: vstavi a xs
   
@@ -309,7 +309,7 @@ let rec je_levicarska_kopica kopica =
       if y1 >= y && x = 1 then je_levicarska_kopica levo
       else false
     | Sestavljena (x1, levo1, y1, desno1), Sestavljena (x2, levo2, y2, desno2) ->
-      if y1 >= y && y2 >= y && x2 = x - 1 then je_levicarska_kopica levo && je_levicarska_kopica desno
+      if y1 >= y && y2 >= y && x2 = x - 1 && x1 >= x2 then je_levicarska_kopica levo && je_levicarska_kopica desno
       else false
     | Prazna, Prazna ->
       if x = 1 then true
@@ -327,7 +327,9 @@ let rec je_levicarska_kopica kopica =
  - : bool = true
 [*----------------------------------------------------------------------------*)
 
-let sestavi _ _ _ = failwith "TODO"
+let sestavi a kop1 kop2 =
+  if rang kop1 >= rang kop2 then Sestavljena (rang kop2 + 1, kop1, a, kop2)
+  else Sestavljena (rang kop1 + 1, kop2, a, kop1)
 
 (*----------------------------------------------------------------------------*
  Sestavite funkcijo `zlij : 'a kopica -> 'a kopica -> 'a kopica`, ki zlije dve
@@ -351,20 +353,35 @@ let sestavi _ _ _ = failwith "TODO"
               7 (1)
 [*----------------------------------------------------------------------------*)
 
-let rec zlij _ _ = failwith "TODO"
+let rec zlij kop1 kop2 =
+  match kop1, kop2 with
+  | Prazna, x | x, Prazna -> x
+  | Sestavljena (_, leva1, vred1, desna1), Sestavljena (_, leva2, vred2, desna2) ->
+    if vred1 <= vred2 then sestavi vred1 leva1 (zlij desna1 kop2)
+    else
+      sestavi vred2 leva2 (zlij desna2 kop1)
 
 (*----------------------------------------------------------------------------*
  Sestavite modul `LevicarskaKopica`, ki prioritetno vrsto predstavi z
  levičarsko kopico.
 [*----------------------------------------------------------------------------*)
+let zlij_kopici = zlij
 
 module LevicarskaKopica : PRIORITETNA_VRSTA = struct
   type 'a t = 'a kopica
 
   let prazna = Prazna
-  let vstavi _ _ = failwith "TODO"
-  let odstrani_najmanjsega _ = failwith "TODO"
-  let zlij _ _ = failwith "TODO"
+  let vstavi a kopica =
+    zlij_kopici (Sestavljena (1, prazna, a, prazna)) kopica
+
+  let odstrani_najmanjsega kopica =
+    match kopica with
+    | Prazna -> None
+    | Sestavljena (rang, leva, x, desna) ->
+      Some (x, zlij leva desna)
+
+  let zlij kop1 kop2 =
+    zlij_kopici kop1 kop2
 end
 
 (*----------------------------------------------------------------------------*
@@ -379,7 +396,21 @@ end
 [*----------------------------------------------------------------------------*)
 
 module Uredi (V : PRIORITETNA_VRSTA) = struct
-  let uredi _ = failwith "TODO"
+  let uredi seznam =
+    let rec vstavi_vse seznam vrsta =
+      match seznam with
+      | [] -> vrsta
+      | x :: xs -> vstavi_vse xs (V.vstavi x vrsta)
+    in
+
+    let rec odstrani_vse vrsta =
+      match V.odstrani_najmanjsega vrsta with
+      | None -> []
+      | Some (x, nova_vrsta) ->
+        x :: odstrani_vse nova_vrsta
+    in
+
+    odstrani_vse (vstavi_vse seznam V.prazna) 
 end
 
 module UrediSSeznamom = Uredi (UrejenSeznam)
@@ -403,7 +434,27 @@ module UrediSKopico = Uredi (LevicarskaKopica)
 [*----------------------------------------------------------------------------*)
 
 module Huffman (V : PRIORITETNA_VRSTA) = struct
-  let zgradi_drevo _ = failwith "TODO"
+  let zgradi_drevo frekvence =
+    let rec vstavi frekvence vrsta =
+      match frekvence with
+      | [] -> vrsta
+      | (znak, f) :: xs -> vstavi xs (V.vstavi (f, znak, List znak) vrsta)
+    in
+    let rec zdruzi vrsta =
+      match V.odstrani_najmanjsega vrsta with
+      | None -> failwith "Prazna vrsta"
+      | Some (x, xs) ->
+          match V.odstrani_najmanjsega xs with
+          | None -> 
+            let (_, _, drevo) = x in drevo
+          | Some (y, ys) ->
+            let (u1, z1, d1) = x in
+            let (u2, z2, d2) = y in
+            let nov = (u1 + u2, min z1 z2, Vozlisce (d1, d2))
+          in
+            zdruzi (V.vstavi nov ys)
+    in
+    zdruzi (vstavi frekvence V.prazna)
 end
 
 module HuffmanSSeznamom = Huffman (UrejenSeznam)
@@ -424,7 +475,15 @@ let zgradi_drevo = HuffmanSKopico.zgradi_drevo
  - : int = 23
 [*----------------------------------------------------------------------------*)
 
-let dolzina_kodiranja _ _ = failwith "TODO"
+let dolzina_kodiranja frekvence drevo =
+  if frekvence = [] then 0
+  else
+    let rec aux drevo i =
+        match drevo with
+        | List x -> i * List.assoc x frekvence
+        | Vozlisce (x, y) -> aux x (i + 1) + aux y (i + 1)
+  in
+  aux drevo 0
 
 (*----------------------------------------------------------------------------*
  Sestavite funkciji `stisni : string -> drevo * bit list`, ki zgradi drevo za
@@ -437,8 +496,11 @@ let dolzina_kodiranja _ _ = failwith "TODO"
  - : string = "abrakadabra"
 [*----------------------------------------------------------------------------*)
 
-let stisni _ = failwith "TODO"
-let razsiri _ = failwith "TODO"
+let stisni niz =
+  let drevo = zgradi_drevo (frekvence niz) in
+  (drevo, kodiraj drevo niz)
+
+let razsiri (drevo, bit_list) = dekodiraj drevo bit_list
 
 (*----------------------------------------------------------------------------*
  Sestavite funkcijo `razmerje_stiskanja : string -> float`, ki vrne razmerje
@@ -449,7 +511,12 @@ let razsiri _ = failwith "TODO"
  - : float = 0.21875
 [*----------------------------------------------------------------------------*)
 
-let razmerje_stiskanja _ = failwith "TODO"
+let razmerje_stiskanja niz =
+  if niz = "" then failwith ":("
+  else
+    let b = List.length (snd (stisni niz)) in
+    let n = String.length niz in
+    float b /. (float n *. 8.)
 
 (* Pripomočki za testiranje - ignorirajte *)
 
